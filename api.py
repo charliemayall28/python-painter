@@ -19,13 +19,12 @@ def submit():
     It returns the result of the program.
     """
     data = request.get_json()
-    print(data)
     maker = Maker()
     maker.loadArrayJSON(data)
     commandString = maker.dump()
     with open(ROOT / "test.json", "w") as w:
         json.dump(data, w)
-    print(commandString)
+
     return jsonify({"commands": commandString})
 
 

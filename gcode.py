@@ -22,13 +22,18 @@ class Move:
         self.__command = ""
         self.command = self._setCommand()
 
+    def _decimalPlaces(self):
+        self.x = round(float(self.x, 4))
+        self.y = round(float(self.y, 4))
+        self.z = round(float(self.z, 4))
+
     def _setAxes(self):
         if self.x != None:
-            self.__command += "X" + str(self.x) + " "
+            self.__command += f"X{self.x:.2f} "
         if self.y != None:
-            self.__command += "Y" + str(self.y) + " "
+            self.__command += f"Y{self.y:.2f} "
         if self.z != None:
-            self.__command += "Z" + str(self.z) + " "
+            self.__command += f"Z{self.z:.2f} "
         if self.e != None:
             self.__command += "E" + str(self.e) + " "
 
@@ -45,27 +50,54 @@ class Move:
 
     def _setCommand_G0(self):
         self.__command = "G0 "
+
         self._setAxes()
         self._setSpeed()
 
 
 class SetupCNC:
     """
-    THIS IS A DEMO SETUP INSTRUCTION CREATOR FOR USE ON https://ncviewer.com/
+    THIS IS A DEMO SETUP INSTRUCTION CREATOR FOR USE ON THE CURA CR20
 
     """
 
     def __init__(self) -> None:
-        commands = [
-            "N10 G90 G94 G17 G69",
-            "N15 G20",
-            "N20 G53 G0 Z0.",
-            "N30 T1 M6",
-            "N35 S7640 M3",
-            "N40 G54",
-            "N45 M8",
+        self.start_commands = [
+            "M201 X500.00 Y500.00 Z100.00 E5000.00 ;Setup machine max acceleration",
+            "M203 X500.00 Y500.00 Z10.00 E50.00 ;Setup machine max feedrate",
+            "M204 P500.00 R1000.00 T500.00 ;Setup Print/Retract/Travel acceleration",
+            "M205 X8.00 Y8.00 Z0.40 E5.00 ;Setup Jerk",
+            "M220 S100 ;Reset Feedrate",
+            "M221 S100 ;Reset Flowrate",
+            "G28 ;Home",
+            "M420 S1 Z2 ;Enable ABL using saved Mesh and Fade Height",
+            "G92 E0 ;Reset Extruder",
+            "G1 Z2.0 F3000 ;Move Z Axis up",
+            "G1 X10.1 Y20 Z40 F5000.0 ;Move to start position",
+            "G92 E0 ;Reset Extruder",
+            "G1 X40 Y40 Z40 F3000 ;Move Z Axis up",
+            "M0; stop and wait for user input",
+            "G1 X40 Y40 Z50 F3000 ;Move Z Axis up",
         ]
-        self.commands = commands
+        self.end_commands = [
+            "G1 Z50 F3000 ;Move Z Axis up",
+            "G91 ;Relative positioning",
+            "G1 E-2 F2700 ;Retract a bit",
+            "G1 E-2 Z0.2 F2400 ;Retract and raise Z",
+            "G1 X5 Y5 F3000 ;Wipe out",
+            "G1 Z10 ;Raise Z more",
+            "G90 ;Absolute positioning",
+            "G1 X0 Y150 ;Present print",
+            "M106 S0 ;Turn-off fan",
+            "M104 S0 ;Turn-off hotend",
+            "M140 S0 ;Turn-off bed",
+            "M84 X Y E ;Disable all steppers but Z",
+        ]
 
-    def dump(self):
-        return "\n".join(self.commands)
+    def dump(self, type_):
+        if type_ == "start":
+            return "\n".join(self.start_commands)
+        elif type_ == "end":
+            return "\n".join(self.end_commands)
+        else:
+            raise ValueError("Invalid type")
