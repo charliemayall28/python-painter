@@ -1,3 +1,7 @@
+from re import X
+from tkinter import Y
+
+
 class CommandBuffer:
     def __init__(self):
         self.commands = []
@@ -13,14 +17,28 @@ class CommandBuffer:
 
 
 class Move:
-    def __init__(self, x=None, y=None, z=None, e=None, f=None):
+    def __init__(
+        self, x=None, y=None, z=None, e=None, f=None, rapid=False, *args, **kwargs
+    ):
         self.x = x
         self.y = y
         self.z = z
         self.e = e
         self.f = f
+        self.rapid = rapid
         self.__command = ""
         self.command = self._setCommand()
+
+    def __getattr__(self, name):
+        if name == "command":
+            return self._setCommand()
+        else:
+            return super().__getattribute__(name)
+
+    def getCommand(self):
+        self.__command = ""
+        self._setCommand()
+        return self.__command
 
     def _decimalPlaces(self):
         self.x = round(float(self.x, 4))
@@ -43,16 +61,26 @@ class Move:
             self.__command += "F" + str(self.f) + " "
 
     def _setCommand(self):
-        self.__command = "G1 "
+        self.__command = "G1 " if not self.rapid else "G0 "
         self._setAxes()
         self._setSpeed()
         return self.__command
 
-    def _setCommand_G0(self):
-        self.__command = "G0 "
 
-        self._setAxes()
-        self._setSpeed()
+class Pause(Move):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.__command = ""
+        self.command = self._setCommand()
+
+    def getCommand(self):
+        self.__command = ""
+        self._setCommand()
+        return self.__command
+
+    def _setCommand(self):
+        self.__command = "M0; stop and wait for user input"
+        return self.__command
 
 
 class SetupCNC:
@@ -63,8 +91,8 @@ class SetupCNC:
 
     def __init__(self) -> None:
         self.start_commands = [
-            "M201 X500.00 Y500.00 Z100.00 E5000.00 ;Setup machine max acceleration",
-            "M203 X500.00 Y500.00 Z10.00 E50.00 ;Setup machine max feedrate",
+            "M201 X800.00 Y800.00 Z300.00 E5000.00 ;Setup machine max acceleration",
+            "M203 X1500.00 Y1500.00 Z80.00 E50.00 ;Setup machine max feedrate",
             "M204 P500.00 R1000.00 T500.00 ;Setup Print/Retract/Travel acceleration",
             "M205 X8.00 Y8.00 Z0.40 E5.00 ;Setup Jerk",
             "M220 S100 ;Reset Feedrate",
