@@ -18,14 +18,17 @@ MIN_BRUSH_WIDTH = (
 LENGTH_SCALE = 0.12  # scale factor for line length
 Z_HEIGHT = 40  # (mm) height of the z axis above the bed when instrument touches the bed
 BACKOFF_HEIGHT = 30  # (mm) height to back off when moving to start a new stroke
+POT_HEIGHT = 70  # (mm) height of the color / wash pots
 MAX_STROKE_LENGTH = 460
-CENTER_Y = 100  # (mm) center y coordinate of the bed
-CENTER_X = 100  # (mm) center x coordinate of the bed
 MAX_X = 200  # (mm) max x coordinate of the bed
-MAX_Y = 200  # (mm) max y coordinate of the bed
-MIN_Y = 60
-MIN_X = 10
-FEED_RATE = 1800  # (mm/min) feed rate for the machine
+MAX_Y = 230  # (mm) max y coordinate of the bed
+MIN_Y = 100
+MIN_X = 1
+CENTER_Y = int((MAX_Y + MIN_Y) / 2)  # (mm) center y coordinate of the bed
+CENTER_X = int((MAX_X + MIN_X) / 2)  # (mm) center x coordinate of the bed
+
+FEED_RATE = 1200  # (mm/min) feed rate for the machine
+DEFAULT_COLOR = "green"
 
 
 class Preparer:
@@ -43,6 +46,7 @@ class Preparer:
         self.input_item = input_item
         self.array = self.loadArray()
         self.moves = []
+        self.pots = ColorPots()
 
     def build(self):
         return self.make()
@@ -105,9 +109,36 @@ class Preparer:
         self.resetStroke(self.array[0][0][0], self.array[0][0][0])
         strokes = Optomise.sortStrokes(self.array)
         travelLength = 0
+        # "G1 X40 Y40 Z40 F3000 ;Move Z Axis up",
+        #     "M0; stop and wait for user input",
+        #     "G1 X40 Y40 Z50 F3000 ;Move Z Axis up",
+        self.moves.append(
+            Move(
+                x=MAX_X - 20,
+                y=MIN_Y,
+                z=Z_HEIGHT,
+                e=0,
+                f=FEED_RATE,
+                rapid=True,
+                immuneToLimits=True,
+            )
+        )
+        self.moves.append(Pause(x=MAX_X - 30, y=MIN_Y + 30, z=Z_HEIGHT, f=FEED_RATE))
 
-        self.moves.append(Pause(x=MIN_X + 10, y=MIN_Y + 30, z=Z_HEIGHT))
+        self.moves.append(
+            Move(
+                MAX_X - 20,
+                MIN_Y,
+                Z_HEIGHT + BACKOFF_HEIGHT,
+                0,
+                FEED_RATE,
+                True,
+                immuneToLimits=True,
+            )
+        )
+        self.refillColor(self.array[0][0], self.array[0][1])
         for stroke in strokes:
+            quarteredMaxStroke = int(MAX_STROKE_LENGTH / 4)
 
             if len(stroke) >= 2:
                 self.leadIn(stroke[0], stroke[1])
@@ -128,10 +159,35 @@ class Preparer:
                     and len(stroke) > 1
                     and 1 < i < len(stroke) - 1
                 ):
-                    self.addPause(stroke[i], stroke[i + 1])
+                    self.moves.extend(WashCycle().washCenterJiggle())
+                    self.refillColor(stroke[i], stroke[i + 1])
                     travelLength = 0
                     firstAfterLeadIn = True
-                move = Move(point[0], point[1], Z_HEIGHT, 0, FEED_RATE, False)
+
+                elif (
+                    travelLength >= quarteredMaxStroke
+                    and i > int(len(stroke) / 4)
+                    and i >= 7
+                ):
+                    for prevNum in [-1, -2, -3, -4, -5, -6, -5, -4, -3 - 2, -1]:
+                        backMove = stroke[i + prevNum]
+                        self.moves.append(
+                            Move(
+                                x=backMove[0],
+                                y=backMove[1],
+                                z=Z_HEIGHT,
+                                f=FEED_RATE,
+                                e=0,
+                            )
+                        )
+                    quarteredMaxStroke += int(MAX_STROKE_LENGTH / 4)
+
+                # if the travel length is beyond the quarter of the max stroke length,
+                # find the previous point and move to it
+
+                move = Move(
+                    x=point[0], y=point[1], z=Z_HEIGHT, e=0, f=FEED_RATE, rapid=True
+                )
                 xVals.add(point[0])
                 yVals.add(point[1])
                 if not firstAfterLeadIn:
@@ -153,20 +209,24 @@ class Preparer:
         # scale the x and y coordinates to fit the bed
         x_scale = (MAX_X - MIN_X) / (maxX - minX)
         y_scale = (MAX_Y - MIN_Y) / (maxY - minY)
-        scale = min(x_scale, y_scale)
-        centerX = sum([c.x for c in self.moves if isinstance(c, Move)]) / len(
-            self.moves
-        )
-        centerY = sum([c.y for c in self.moves if isinstance(c, Move)]) / len(
-            self.moves
-        )
+        scale = min(x_scale, y_scale)  # C: I've broken something here but idk what?
+        # the image wont rotate so that its like on the sketchpad
+        # i.e. vertical axis perperndicular to the longest edge of the sheet
+        actualMoves = []
+        for move in self.moves:
+            if any([isinstance(move, Pause), move.immuneToLimits]):
+                continue
+            actualMoves.append(move)
+
+        centerX = sum([c.x for c in actualMoves]) / len(actualMoves)
+        centerY = sum([c.y for c in actualMoves]) / len(actualMoves)
         offsetX = CENTER_X - centerX * scale
         offsetY = CENTER_Y - centerY * scale
         newMoves = []
 
         # scale each value, and add the center offset
         for move in self.moves:
-            if not isinstance(move, Move):
+            if any([isinstance(move, Pause), move.immuneToLimits]):
                 newMoves.append(move)
                 continue
             newX = (move.x * scale) + offsetX
@@ -224,13 +284,13 @@ class Preparer:
                 z=Z_HEIGHT + BACKOFF_HEIGHT * 0.6,
                 f=FEED_RATE,
                 e=0,
-                rapid=True,
+                rapid=False,
             )
         )
 
-    def addPause(self, first_next, second_next):
+    def refillColor(self, first_next, second_next):
         x1, y1 = first_next
-        x2, y2 = second_next
+        self.moves.extend(self.pots.getColor(color=None))
         self.moves.append(
             Move(
                 x=x1,
@@ -238,14 +298,6 @@ class Preparer:
                 z=Z_HEIGHT + BACKOFF_HEIGHT,
                 f=FEED_RATE,
                 e=0,
-            )
-        )
-        self.moves.append(
-            Pause(
-                x=x1,
-                y=y1,
-                z=Z_HEIGHT + BACKOFF_HEIGHT,
-                f=FEED_RATE,
             )
         )
         self.leadIn(first_next=first_next, second_next=second_next)
@@ -300,6 +352,372 @@ class Optomise:
             sortedStrokes.append(strokes[closestIdx])
             strokes.remove(strokes[closestIdx])
         return sortedStrokes
+
+
+class ColorPots:
+    def __init__(self):
+        self.pots = {
+            "red": 0,
+            "green": 1,
+            "blue": 2,
+        }
+        self.potSpacing = 30  # space between pot centers in mm
+        self.firstPotX = 10  # center of first pot in mm
+        self.firstPotY = 55  # center of pot 1 in mm
+        self.entryHeight = Z_HEIGHT + POT_HEIGHT + 10
+        self.innerHeight = Z_HEIGHT + 2
+        self.moves = []
+        self.color = DEFAULT_COLOR
+
+    def _potPos(self, color):
+        return (
+            self.firstPotX + self.pots[color] * self.potSpacing,
+            self.firstPotY,
+        )
+
+    def getColor(self, color):
+        if not color:
+            if not self.color:
+                raise Exception("No color specified")
+            else:
+                color = self.color
+        if color:
+            if not color in self.pots:
+                raise Exception("Color not in pot list")
+        self.color = color
+        moves = []
+        x, y = self._potPos(color)
+        moves.append(
+            Move(x, y + 30, self.entryHeight, 0, FEED_RATE, immuneToLimits=True)
+        )  # add 30 to avoid hitting the pot on the way up (as it move diagonally)
+        moves.append(Move(x, y, self.entryHeight, 0, FEED_RATE, immuneToLimits=True))
+        moves.append(Move(x, y, self.innerHeight, 0, FEED_RATE, immuneToLimits=True))
+        # stir the brush up and down and around a bit
+
+        for xin in [-4, 4, -4, 4]:
+            for yin in [-4, 4]:
+                moves.append(
+                    Move(
+                        x + xin,
+                        y + yin,
+                        # self.innerHeight if yin % 2 == 1 else self.innerHeight + 1,
+                        self.innerHeight,
+                        0,
+                        FEED_RATE,
+                        immuneToLimits=True,
+                    )
+                )
+        # return to the entry height
+        moves.append(Move(x, y, self.entryHeight, 0, FEED_RATE, immuneToLimits=True))
+        moves.append(
+            Move(x, y + 30, self.entryHeight, 0, FEED_RATE, immuneToLimits=True)
+        )
+        # moves.append(
+        #     Pause(x=x, y=y + 30, z=self.entryHeight, e=0, f=FEED_RATE)
+        # )  # pause so I can check the brush
+        return moves
+
+
+class WashCycle:
+    def __init__(self):
+        self.color = DEFAULT_COLOR
+        self.potX = 70
+        self.potY = 55
+        self.dryX = 130
+        self.entryHeight = Z_HEIGHT + POT_HEIGHT + 10
+        self.innerHeight = Z_HEIGHT + 2
+
+    def washCenterJiggle(self):
+        moves = []
+        moves.append(
+            Move(
+                self.potX,
+                self.potY + 30,
+                self.entryHeight,
+                0,
+                FEED_RATE,
+                immuneToLimits=True,
+            )
+        )  # add 30 to avoid hitting the pot on the way up (as it move diagonally)
+        moves.append(
+            Move(
+                self.potX,
+                self.potY,
+                self.entryHeight,
+                0,
+                FEED_RATE,
+                immuneToLimits=True,
+            )
+        )
+        moves.append(
+            Move(
+                self.potX,
+                self.potY,
+                self.innerHeight,
+                0,
+                FEED_RATE,
+                immuneToLimits=True,
+            )
+        )
+        for i in range(100):
+            if i % 2 == 0:
+                for x in range(20):
+                    if x % 2 == 0:
+                        x_move = -0.1
+                    else:
+                        x_move = 0.1
+                    moves.append(
+                        Move(
+                            self.potX + x_move,
+                            self.potY,
+                            self.innerHeight,
+                            0,
+                            FEED_RATE,
+                            immuneToLimits=True,
+                        )
+                    )
+            else:
+                for y in range(20):
+                    if y % 2 == 0:
+                        y_move = -0.1
+                    else:
+                        y_move = 0.1
+                    moves.append(
+                        Move(
+                            self.potX,
+                            self.potY + y_move,
+                            self.innerHeight,
+                            0,
+                            FEED_RATE,
+                            immuneToLimits=True,
+                        )
+                    )
+            moves.append(
+                Move(
+                    self.potX,
+                    self.potY,
+                    self.innerHeight + 20,
+                    0,
+                    FEED_RATE,
+                    immuneToLimits=True,
+                )
+            )
+
+    def dryCycle(self):
+        moves = []
+        moves.append(
+            Move(
+                self.potX,
+                self.potY,
+                self.entryHeight,
+                0,
+                FEED_RATE,
+                immuneToLimits=True,
+                rapid=True,
+            )
+        )
+        # move to the drying area
+        moves.append(
+            Move(
+                self.dryX,
+                self.potY,
+                self.entryHeight,
+                0,
+                FEED_RATE,
+                immuneToLimits=True,
+            )
+        )
+        for y in range(self.potY - 10, self.potY + 10):
+            for x in [self.dryX + 20, self.dryX - 20]:
+                moves.append(
+                    Move(
+                        x,
+                        y,
+                        self.innerHeight - 1,
+                        0,
+                        FEED_RATE,
+                        immuneToLimits=True,
+                        rapid=True,
+                    )
+                )
+                # move the brush up a bit so you dont mash it so much
+                moves.append(
+                    Move(
+                        x,
+                        y,
+                        self.innerHeight,
+                        0,
+                        FEED_RATE,
+                        immuneToLimits=True,
+                    )
+                )
+        moves.append(
+            Move(
+                self.dryX,
+                self.potY,
+                self.entryHeight,
+                0,
+                FEED_RATE,
+                immuneToLimits=True,
+                rapid=True,
+            )
+        )
+        return moves
+
+    def wash(self):
+        moves = []
+
+        moves.append(
+            Move(
+                self.potX,
+                self.potY + 30,
+                self.entryHeight,
+                0,
+                FEED_RATE,
+                immuneToLimits=True,
+            )
+        )  # add 30 to avoid hitting the pot on the way up (as it move diagonally)
+        moves.append(
+            Move(
+                self.potX,
+                self.potY,
+                self.entryHeight,
+                0,
+                FEED_RATE,
+                immuneToLimits=True,
+            )
+        )
+        moves.append(
+            Move(
+                self.potX,
+                self.potY,
+                self.innerHeight,
+                0,
+                FEED_RATE,
+                immuneToLimits=True,
+            )
+        )
+        # find the coordinates for a path along the diameter of a circle radius = 7
+        # the circle is centered at (x,y) = (self.potX, self.potY)
+        coords = []
+        for radius in [3, 5, 7]:
+            for angle in range(0, 360, 5):
+                x = self.potX + radius * math.cos(math.radians(angle))
+                y = self.potY + radius * math.sin(math.radians(angle))
+                coords.append((x, y))
+        i = 0
+        for x, y in coords:
+            i += 1
+            prevZ = self.innerHeight - 2 if i % 2 == 0 else self.innerHeight - 1
+            moves.append(
+                Move(
+                    x,
+                    y,
+                    prevZ,
+                    0,
+                    FEED_RATE,
+                    immuneToLimits=True,
+                    rapid=True,
+                )
+            )
+        moves.append(
+            Move(
+                self.potX,
+                self.potY,
+                self.innerHeight + 0.25 * (self.entryHeight - self.innerHeight),
+                0,
+                FEED_RATE,
+                immuneToLimits=True,
+                rapid=True,
+            )
+        )
+        # shake the brush in the x axis rapidly
+
+        for i in range(100):
+            moves.append(
+                Move(
+                    self.potX + 0.2 if i % 2 == 0 else self.potX - 0.2,
+                    self.potY,
+                    self.innerHeight,
+                    0,
+                    FEED_RATE,
+                    immuneToLimits=True,
+                    rapid=True,
+                )
+            )
+            if i % 5 == 0:
+                moves.append(
+                    Move(
+                        self.potX + 0.2 if i % 2 == 0 else self.potX - 0.2,
+                        self.potY,
+                        self.innerHeight - 2,
+                        0,
+                        FEED_RATE,
+                        immuneToLimits=True,
+                        rapid=True,
+                    )
+                )
+
+        # return to the entry height
+        moves.append(
+            Move(
+                self.potX,
+                self.potY,
+                self.entryHeight,
+                0,
+                FEED_RATE,
+                immuneToLimits=True,
+                rapid=True,
+            )
+        )
+        # move to the drying area
+        moves.append(
+            Move(
+                self.dryX,
+                self.potY,
+                self.entryHeight,
+                0,
+                FEED_RATE,
+                immuneToLimits=True,
+            )
+        )
+        for y in range(self.potY - 10, self.potY + 10):
+            for x in [self.dryX + 20, self.dryX - 20]:
+                moves.append(
+                    Move(
+                        x,
+                        y,
+                        self.innerHeight - 1,
+                        0,
+                        FEED_RATE,
+                        immuneToLimits=True,
+                        rapid=True,
+                    )
+                )
+                # move the brush up a bit so you dont mash it so much
+                moves.append(
+                    Move(
+                        x,
+                        y,
+                        self.innerHeight,
+                        0,
+                        FEED_RATE,
+                        immuneToLimits=True,
+                    )
+                )
+        # return to the entry height
+        moves.append(
+            Move(
+                self.dryX,
+                self.potY,
+                self.entryHeight,
+                0,
+                FEED_RATE,
+                immuneToLimits=True,
+                rapid=True,
+            )
+        )
+        return moves
 
 
 # TODO:
