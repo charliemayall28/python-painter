@@ -159,7 +159,7 @@ class Preparer:
                     and len(stroke) > 1
                     and 1 < i < len(stroke) - 1
                 ):
-                    # self.moves.extend(WashCycle().washCenterJiggle())
+                    self.moves.extend(WashCycle().washCenterJiggle())
                     self.refillColor(stroke[i], stroke[i + 1])
                     travelLength = 0
                     firstAfterLeadIn = True
@@ -233,6 +233,17 @@ class Preparer:
             newY = (move.y * scale) + offsetY
             move.x = newX
             move.y = newY
+            if not all([MIN_X <= move.x <= MAX_X, MIN_Y <= move.y <= MAX_Y]):
+                print("Move outside of bounds: " + str(move.x) + " " + str(move.y))
+                if move.x < MIN_X:
+                    move.x = MIN_X
+                if move.x > MAX_X:
+                    move.x = MAX_X
+                if move.y < MIN_Y:
+                    move.y = MIN_Y
+                if move.y > MAX_Y:
+                    move.y = MAX_Y
+
             newMoves.append(move)
 
         return newMoves
