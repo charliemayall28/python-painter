@@ -29,7 +29,7 @@ def submit():
     return jsonify({"commands": commandString})
 
 
-img_path = ROOT / "imageProcess" / "stickman.png"
+img_path = ROOT / "imageProcess" / "stickman_bottom.png"
 maker = Maker()
 prep = Preparer(img_path)
 moves = prep.make()

@@ -18,7 +18,16 @@ class CommandBuffer:
 
 class Move:
     def __init__(
-        self, x=None, y=None, z=None, e=None, f=None, rapid=False, *args, **kwargs
+        self,
+        x=None,
+        y=None,
+        z=None,
+        e=None,
+        f=None,
+        rapid=False,
+        immuneToLimits=False,
+        *args,
+        **kwargs,
     ):
         self.x = x
         self.y = y
@@ -28,6 +37,7 @@ class Move:
         self.rapid = rapid
         self.__command = ""
         self.command = self._setCommand()
+        self.immuneToLimits = immuneToLimits  # sets whether the move should be constrained by the X_MIN, X_MAX, Y_MIN, Y_MAX, Z_MIN, Z_MAX limits set in maker.py
 
     def __getattr__(self, name):
         if name == "command":
@@ -100,12 +110,6 @@ class SetupCNC:
             "G28 ;Home",
             "M420 S1 Z2 ;Enable ABL using saved Mesh and Fade Height",
             "G92 E0 ;Reset Extruder",
-            "G1 Z2.0 F3000 ;Move Z Axis up",
-            "G1 X10.1 Y20 Z40 F5000.0 ;Move to start position",
-            "G92 E0 ;Reset Extruder",
-            "G1 X40 Y40 Z40 F3000 ;Move Z Axis up",
-            "M0; stop and wait for user input",
-            "G1 X40 Y40 Z50 F3000 ;Move Z Axis up",
         ]
         self.end_commands = [
             "G1 Z50 F3000 ;Move Z Axis up",

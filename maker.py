@@ -19,7 +19,7 @@ LENGTH_SCALE = 0.12  # scale factor for line length
 Z_HEIGHT = 40  # (mm) height of the z axis above the bed when instrument touches the bed
 BACKOFF_HEIGHT = 30  # (mm) height to back off when moving to start a new stroke
 POT_HEIGHT = 70  # (mm) height of the color / wash pots
-MAX_STROKE_LENGTH = 460
+MAX_STROKE_LENGTH = 700
 MAX_X = 200  # (mm) max x coordinate of the bed
 MAX_Y = 230  # (mm) max y coordinate of the bed
 MIN_Y = 100
@@ -159,7 +159,7 @@ class Preparer:
                     and len(stroke) > 1
                     and 1 < i < len(stroke) - 1
                 ):
-                    self.moves.extend(WashCycle().washCenterJiggle())
+                    # self.moves.extend(WashCycle().washCenterJiggle())
                     self.refillColor(stroke[i], stroke[i + 1])
                     travelLength = 0
                     firstAfterLeadIn = True
@@ -459,13 +459,13 @@ class WashCycle:
                 immuneToLimits=True,
             )
         )
-        for i in range(100):
+        for i in range(30):
             if i % 2 == 0:
-                for x in range(20):
+                for x in range(100):
                     if x % 2 == 0:
-                        x_move = -0.1
+                        x_move = -0.3
                     else:
-                        x_move = 0.1
+                        x_move = 0.3
                     moves.append(
                         Move(
                             self.potX + x_move,
@@ -477,11 +477,11 @@ class WashCycle:
                         )
                     )
             else:
-                for y in range(20):
+                for y in range(100):
                     if y % 2 == 0:
-                        y_move = -0.1
+                        y_move = -0.3
                     else:
-                        y_move = 0.1
+                        y_move = 0.3
                     moves.append(
                         Move(
                             self.potX,
@@ -492,16 +492,20 @@ class WashCycle:
                             immuneToLimits=True,
                         )
                     )
-            moves.append(
-                Move(
-                    self.potX,
-                    self.potY,
-                    self.innerHeight + 20,
-                    0,
-                    FEED_RATE,
-                    immuneToLimits=True,
+            if i % 10 == 0:
+
+                moves.append(
+                    Move(
+                        self.potX,
+                        self.potY,
+                        self.innerHeight + 20,
+                        0,
+                        FEED_RATE,
+                        immuneToLimits=True,
+                    )
                 )
-            )
+        moves.extend(self.dryCycle())
+        return moves
 
     def dryCycle(self):
         moves = []
@@ -527,7 +531,7 @@ class WashCycle:
                 immuneToLimits=True,
             )
         )
-        for y in range(self.potY - 10, self.potY + 10):
+        for y in range(self.potY - 10, self.potY + 10, 4):
             for x in [self.dryX + 20, self.dryX - 20]:
                 moves.append(
                     Move(
