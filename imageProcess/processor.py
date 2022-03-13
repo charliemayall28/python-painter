@@ -37,9 +37,10 @@ class ContourFinder:
         contours = sorted(contours, key=cv2.contourArea, reverse=True)
         contours_smooth = self.interpolateContours(contours)
         img_contours = np.zeros(self.img.array.shape, np.uint8)
-        img_contours = cv2.drawContours(
-            img_contours, contours_smooth, -1, (0, 255, 255), 1
-        )
+        # img_contours = cv2.drawContours(
+        #     img_contours, contours_smooth, -1, (0, 255, 255), 1
+        # )
+        img_contours = cv2.drawContours(img_contours, contours, -1, (0, 255, 255), 1)
         cv2.imwrite(str(self.img.path.parent / "contours.png"), img_contours)
         return contours
 
