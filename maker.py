@@ -159,7 +159,7 @@ class Preparer:
                     and len(stroke) > 1
                     and 1 < i < len(stroke) - 1
                 ):
-                    self.moves.extend(WashCycle().washCenterJiggle())
+                    # self.moves.extend(WashCycle().washCenterJiggle())
                     self.refillColor(stroke[i], stroke[i + 1])
                     travelLength = 0
                     firstAfterLeadIn = True
